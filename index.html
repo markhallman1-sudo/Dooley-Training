@@ -27,7 +27,7 @@
 <section id="log" class="hide"><div class="card"><h2>Walk log</h2><p class="muted">Log one representative 5-minute sniffing segment. Compare similar routes, not a quiet block to a crowded trail.</p>
 <div class="grid"><label class="stat">Date<input id="date" type="date"></label><label class="stat">Environment<select id="environment"><option>Familiar neighborhood</option><option>New neighborhood</option><option>Quiet park/trail</option><option>Busy trail</option></select></label><label class="stat">Hard yanks (5 min)<input id="yanks" type="number" min="0" max="99" placeholder="e.g. 3"></label><label class="stat">Controlled transitions<input id="transitionsGood" type="number" min="0" max="100" placeholder="Successes"></label><label class="stat">Transition attempts<input id="transitionsTotal" type="number" min="0" max="100" placeholder="Attempts"></label><label class="stat">“Let's go” successes<input id="success" type="number" min="0" max="20" placeholder="e.g. 7"></label><label class="stat">“Let's go” attempts<input id="attempts" type="number" min="0" max="20" placeholder="e.g. 10"></label><label class="stat">Overall walk (1–5)<select id="rating"><option value="1">1 – rough</option><option value="2">2</option><option value="3" selected>3 – okay</option><option value="4">4</option><option value="5">5 – great</option></select></label></div>
 <h3>Notes / triggers</h3><textarea id="notes" placeholder="What worked? What was difficult?"></textarea><p><button class="primary" id="saveLog">Save walk</button> <button id="exportLog">Export CSV</button></p><div id="weeklySummary"></div><div id="logHistory"></div></div></section>
-<section id="settings" class="hide"><div class="card"><h2>Google Sheets sync</h2><p>Host this page on GitHub Pages. Add your Apps Script deployment URL and your private key here; neither is embedded in the public HTML.</p><label>Apps Script Web App URL<input id="scriptUrl" style="display:block;width:100%;padding:12px;margin:8px 0 14px;border:1px solid #aaa;border-radius:9px" placeholder="https://script.google.com/macros/s/.../exec"></label><label>Private sync key<input id="syncKey" type="password" style="display:block;width:100%;padding:12px;margin:8px 0 14px;border:1px solid #aaa;border-radius:9px" placeholder="Your secret from Apps Script properties"></label><p><button class="primary" id="saveSettings">Save settings</button> <button id="syncNow">Test connection / Sync</button></p><p id="syncStatus" class="muted">Not connected.</p><p class="small muted">The private key is stored only in this browser. Do not commit it to GitHub. The app saves locally first and checks Sheets to confirm successful uploads.</p></div></section><footer>Local-first tracking with optional Google Sheets sync. Export CSV for backup. Training guidance is not a substitute for an in-person safety assessment.</footer>
+<section id="settings" class="hide"><div class="card"><h2>Google Sheets sync</h2><p>Host this page on GitHub Pages. Your Apps Script deployment URL is preconfigured. No shared secret is required by this page.</p><label>Apps Script Web App URL<input id="scriptUrl" style="display:block;width:100%;padding:12px;margin:8px 0 14px;border:1px solid #aaa;border-radius:9px" placeholder="https://script.google.com/macros/s/.../exec"></label><label>Optional sync key<input id="syncKey" type="password" style="display:block;width:100%;padding:12px;margin:8px 0 14px;border:1px solid #aaa;border-radius:9px" placeholder="Leave blank for no shared secret"></label><p><button class="primary" id="saveSettings">Save settings</button> <button id="syncNow">Test connection / Sync</button></p><p id="syncStatus" class="muted">Not connected.</p><p class="small muted">An optional key, if entered, is stored only in this browser. The app saves locally first and checks Sheets to confirm successful uploads.</p></div></section><footer>Local-first tracking with optional Google Sheets sync. Export CSV for backup. Training guidance is not a substitute for an in-person safety assessment.</footer>
 </main>
 <script>
 const weeks=[
@@ -43,7 +43,9 @@ const weeks=[
 const daily=["Give Dooley a relaxed sniff-and-potty start.","Practice 3–5 easy controlled approaches between smells.","Reward voluntary loose-leash movement before tension.","Practice 3–5 easy “Let's go” responses (do not repeat cues).","Finish with a relaxed exploration period."];
 const get=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},put=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
 let current=get("dooleyCurrentWeek",0), checks=get("dooleyChecks",{}), logs=get("dooleyLogs",[]), today=get("dooleyDaily",[]);
-let config=get("dooleyConfig",{url:"",key:""});
+const DEFAULT_SCRIPT_URL="https://script.google.com/macros/s/AKfycbwc_KHvLOhu86xySz7g-0sJ3abCCbtyL2o-4vq4lz4_HLt_dJ98TBrPQfGN1uCq0ssF/exec";
+let config=get("dooleyConfig",{url:DEFAULT_SCRIPT_URL,key:""});
+if(!config.url)config.url=DEFAULT_SCRIPT_URL;
 const $=id=>document.getElementById(id);
 function nav(tab){document.querySelectorAll("main>section").forEach(x=>x.classList.toggle("hide",x.id!==tab));document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));scrollTo({top:0,behavior:"smooth"})}
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>nav(b.dataset.tab));document.querySelectorAll("[data-goto]").forEach(b=>b.onclick=()=>nav(b.dataset.goto));
@@ -84,7 +86,7 @@ function renderSummary(){
  $("recommendation").textContent=advice;
 }
 function remoteList(){return new Promise((resolve,reject)=>{
- if(!config.url||!config.key)return reject(Error("Add your URL and private key in Sync settings."));
+ if(!config.url)return reject(Error("Add your URL in Sync settings."));
  const callback="dooleyCb"+Math.random().toString(36).slice(2),script=document.createElement("script");let timer;
  window[callback]=data=>{cleanup();data.ok?resolve(data.records||[]):reject(Error(data.error||"Sync failed"))};
  function cleanup(){clearTimeout(timer);delete window[callback];script.remove()}
@@ -93,7 +95,7 @@ function remoteList(){return new Promise((resolve,reject)=>{
  script.src=config.url+"?callback="+callback+"&key="+encodeURIComponent(config.key)+"&t="+Date.now();document.head.append(script);
  })}
 async function syncRecords(){
- if(!config.url||!config.key)return;
+ if(!config.url)return;
  const status=$("syncStatus");status.textContent="Connecting…";
  try{
   let remote=await remoteList(),ids=new Set(remote.map(x=>x.id));
@@ -113,5 +115,5 @@ $("saveSettings").onclick=()=>{const url=$("scriptUrl").value.trim(),key=$("sync
 $("syncNow").onclick=()=>syncRecords();
 
 renderDaily();renderWeeks();renderProgress();renderLogs();
-if(config.url&&config.key)syncRecords();
+if(config.url)syncRecords();
 </script></body></html>
